@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decentralized Voting System</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f7f6;
+            line-height: 1.6;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .section-title {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .wallet-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #ecf0f1;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        #proposalForm, #memberManagement {
+            margin-top: 20px;
+        }
+        .proposal-card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #f9f9f9;
+        }
+        .voting-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        #statusMessage {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success-message {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error-message {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="wallet-status">
+            <h1>Decentralized Voting System</h1>
+            <div>
+                <button id="connectWallet" class="btn">Connect Wallet</button>
+                <span id="walletAddress"></span>
+            </div>
+        </div>
+
+        <div id="statusMessage"></div>
+
+        <!-- Membership Management -->
+        <div id="memberManagement" style="display:none;">
+            <h2 class="section-title">Group Membership</h2>
+            <div>
+                <input type="text" id="memberAddress" placeholder="Ethereum Address">
+                <button id="addMember" class="btn">Add Member</button>
+                <button id="removeMember" class="btn">Remove Member</button>
+            </div>
+        </div>
+
+        <!-- Proposal Creation -->
+        <div id="proposalForm" style="display:none;">
+            <h2 class="section-title">Create Proposal</h2>
+            <form id="createProposalForm">
+                <textarea id="proposalDescription" placeholder="Describe your proposal" rows="4" required></textarea>
+                <button type="submit" class="btn">Create Proposal</button>
+            </form>
+        </div>
+
+        <!-- Proposals List -->
+        <div id="proposalsList" style="display:none;">
+            <h2 class="section-title">Active Proposals</h2>
+            <div id="proposalsContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        class VotingSystemApp {
+            constructor() {
+                this.web3 = null;
+                this.contract = null;
+                this.account = null;
+                this.contractAddress = '0xED731aeB4ca3dEC1d6433Ea8cC30C335eB9a91E7'; // Replace with actual deployed contract address
+                this.contractABI = [
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_member",
+				"type": "address"
+			}
+		],
+		"name": "addGroupMember",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_description",
+				"type": "string"
+			}
+		],
+		"name": "createProposal",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_proposalId",
+				"type": "uint256"
+			}
+		],
+		"name": "finalizeProposal",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_requiredQuorum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_votingPeriod",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "proposalId",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "description",
+				"type": "string"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "proposer",
+				"type": "address"
+			}
+		],
+		"name": "ProposalCreated",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "proposalId",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "enum GroupVotingSystem.ProposalStatus",
+				"name": "status",
+				"type": "uint8"
+			}
+		],
+		"name": "ProposalFinalized",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_member",
+				"type": "address"
+			}
+		],
+		"name": "removeGroupMember",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_proposalId",
+				"type": "uint256"
+			},
+			{
+				"internalType": "enum GroupVotingSystem.VoteType",
+				"name": "_voteType",
+				"type": "uint8"
+			}
+		],
+		"name": "vote",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "uint256",
+				"name": "proposalId",
+				"type": "uint256"
+			},
+			{
+				"indexed": true,
+				"internalType": "address",
+				"name": "voter",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "enum GroupVotingSystem.VoteType",
+				"name": "voteType",
+				"type": "uint8"
+			}
+		],
+		"name": "VoteCast",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_proposalId",
+				"type": "uint256"
+			}
+		],
+		"name": "getProposalDetails",
+		"outputs": [
+			{
+				"internalType": "string",
+				"name": "description",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "proposer",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "createdAt",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "votingDeadline",
+				"type": "uint256"
+			},
+			{
+				"internalType": "enum GroupVotingSystem.ProposalStatus",
+				"name": "status",
+				"type": "uint8"
+			},
+			{
+				"internalType": "uint256",
+				"name": "votesFor",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "votesAgainst",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "groupMembers",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_member",
+				"type": "address"
+			}
+		],
+		"name": "isGroupMember",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "MAX_VOTING_DURATION",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "memberCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "MIN_VOTING_DURATION",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "proposalCount",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "proposals",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "id",
+				"type": "uint256"
+			},
+			{
+				"internalType": "string",
+				"name": "description",
+				"type": "string"
+			},
+			{
+				"internalType": "address",
+				"name": "proposer",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "createdAt",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "votingDeadline",
+				"type": "uint256"
+			},
+			{
+				"internalType": "enum GroupVotingSystem.ProposalStatus",
+				"name": "status",
+				"type": "uint8"
+			},
+			{
+				"internalType": "uint256",
+				"name": "votesFor",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "votesAgainst",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "requiredQuorum",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "votingPeriod",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]; // Replace with actual contract ABI
+            }
+
+            async init() {
+                if (window.ethereum) {
+                    try {
+                        this.web3 = new Web3(window.ethereum);
+                        this.contract = new this.web3.eth.Contract(
+                            this.contractABI, 
+                            this.contractAddress
+                        );
+                        this.bindEvents();
+                    } catch (error) {
+                        this.showMessage('Web3 initialization failed', 'error');
+                    }
+                } else {
+                    this.showMessage('Please install MetaMask!', 'error');
+                }
+            }
+
+            bindEvents() {
+                document.getElementById('connectWallet').addEventListener('click', () => this.connectWallet());
+                
+                // Only bind these if they exist to prevent errors
+                const createProposalForm = document.getElementById('createProposalForm');
+                if (createProposalForm) {
+                    createProposalForm.addEventListener('submit', (e) => this.createProposal(e));
+                }
+
+                const addMemberBtn = document.getElementById('addMember');
+                if (addMemberBtn) {
+                    addMemberBtn.addEventListener('click', () => this.manageMembership('add'));
+                }
+
+                const removeMemberBtn = document.getElementById('removeMember');
+                if (removeMemberBtn) {
+                    removeMemberBtn.addEventListener('click', () => this.manageMembership('remove'));
+                }
+            }
+
+            async connectWallet() {
+                try {
+                    const accounts = await window.ethereum.request({ 
+                        method: 'eth_requestAccounts' 
+                    });
+                    
+                    this.account = accounts[0];
+                    
+                    // Update UI
+                    document.getElementById('walletAddress').textContent = 
+                        `${this.account.substring(0,6)}...${this.account.substring(this.account.length-4)}`;
+                    
+                    // Show hidden sections
+                    document.getElementById('memberManagement').style.display = 'block';
+                    document.getElementById('proposalForm').style.display = 'block';
+                    document.getElementById('proposalsList').style.display = 'block';
+
+                    // Load proposals
+                    this.loadProposals();
+                } catch (error) {
+                    this.showMessage('Wallet connection failed', 'error');
+                }
+            }
+
+            async createProposal(event) {
+                event.preventDefault();
+                
+                const description = document.getElementById('proposalDescription').value;
+
+                try {
+                    await this.contract.methods.createProposal(description)
+                        .send({ from: this.account });
+                    
+                    this.showMessage('Proposal created successfully!', 'success');
+                    this.loadProposals();
+                    
+                    // Reset form
+                    event.target.reset();
+                } catch (error) {
+                    this.showMessage('Failed to create proposal', 'error');
+                }
+            }
+
+            async manageMembership(action) {
+                const memberAddress = document.getElementById('memberAddress').value;
+
+                try {
+                    if (action === 'add') {
+                        await this.contract.methods.addGroupMember(memberAddress)
+                            .send({ from: this.account });
+                        this.showMessage('Member added successfully', 'success');
+                    } else {
+                        await this.contract.methods.removeGroupMember(memberAddress)
+                            .send({ from: this.account });
+                        this.showMessage('Member removed successfully', 'success');
+                    }
+                } catch (error) {
+                    this.showMessage(`Failed to ${action} member`, 'error');
+                }
+            }
+
+            async loadProposals() {
+                const proposalsContainer = document.getElementById('proposalsContainer');
+                proposalsContainer.innerHTML = ''; // Clear previous proposals
+
+                try {
+                    // Fetch total proposal count (you'll need to add this method to contract)
+                    const proposalCount = await this.contract.methods.proposalCount().call();
+
+                    for (let i = 1; i <= proposalCount; i++) {
+                        const proposal = await this.contract.methods.getProposalDetails(i).call();
+                        this.renderProposalCard(i, proposal);
+                    }
+                } catch (error) {
+                    this.showMessage('Failed to load proposals', 'error');
+                }
+            }
+
+            renderProposalCard(proposalId, proposal) {
+                const proposalsContainer = document.getElementById('proposalsContainer');
+                const proposalCard = document.createElement('div');
+                proposalCard.classList.add('proposal-card');
+                
+                // Convert timestamp to readable date
+                const deadline = new Date(proposal.votingDeadline * 1000).toLocaleString();
+
+                proposalCard.innerHTML = `
+                    <h3>Proposal #${proposalId}</h3>
+                    <p>${proposal.description}</p>
+                    <p>Status: ${this.getProposalStatus(proposal.status)}</p>
+                    <p>Voting Deadline: ${deadline}</p>
+                    <p>Votes For: ${proposal.votesFor} | Votes Against: ${proposal.votesAgainst}</p>
+                    <div class="voting-controls">
+                        <button onclick="app.castVote(${proposalId}, 1)" class="btn">Vote For</button>
+                        <button onclick="app.castVote(${proposalId}, 2)" class="btn">Vote Against</button>
+                        <button onclick="app.finalizeProposal(${proposalId})" class="btn">Finalize</button>
+                    </div>
+                `;
+
+                proposalsContainer.appendChild(proposalCard);
+            }
+
+            async castVote(proposalId, voteType) {
+                try {
+                    await this.contract.methods.vote(proposalId, voteType)
+                        .send({ from: this.account });
+                    
+                    this.showMessage('Vote cast successfully!', 'success');
+                    this.loadProposals();
+                } catch (error) {
+                    this.showMessage('Failed to cast vote', 'error');
+                }
+            }
+
+            async finalizeProposal(proposalId) {
+                try {
+                    await this.contract.methods.finalizeProposal(proposalId)
+                        .send({ from: this.account });
+                    
+                    this.showMessage('Proposal finalized!', 'success');
+                    this.loadProposals();
+                } catch (error) {
+                    this.showMessage('Failed to finalize proposal', 'error');
+                }
+            }
+
+            getProposalStatus(status) {
+                const statuses = ['Pending', 'Accepted', 'Rejected', 'Cancelled'];
+                return statuses[status];
+            }
+
+            showMessage(message, type) {
+                const statusElement = document.getElementById('statusMessage');
+                statusElement.textContent = message;
+                statusElement.className = `${type}-message`;
+            }
+        }
+
+        // Initialize the app
+        const app = new VotingSystemApp();
+        document.addEventListener('DOMContentLoaded', () => app.init());
+
+        // MetaMask account change handling
+        if (window.ethereum) {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if (accounts.length === 0) {
+                    // Disconnect scenario
+                    document.getElementById('walletAddress').textContent = '';
+                    document.getElementById('memberManagement').style.display = 'none';
+                    document.getElementById('proposalForm').style.display = 'none';
+                    document.getElementById('proposalsList').style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>
